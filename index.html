@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Splitter</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF-Lib (PDF manipulation) -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    
+    <!-- JSZip (Zipping files) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .drag-active {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { PDFDocument } = PDFLib;
+
+        const App = () => {
+            const [file, setFile] = useState(null);
+            const [isProcessing, setIsProcessing] = useState(false);
+            const [progress, setProgress] = useState(0);
+            const [downloadUrl, setDownloadUrl] = useState(null);
+            const [zipFileName, setZipFileName] = useState('');
+            const [error, setError] = useState('');
+            const [isDragging, setIsDragging] = useState(false);
+
+            useEffect(() => {
+                lucide.createIcons();
+            }, []);
+
+            useEffect(() => {
+                if (file || error || downloadUrl) {
+                    lucide.createIcons();
+                }
+            }, [file, error, downloadUrl, isProcessing]);
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const droppedFile = e.dataTransfer.files[0];
+                validateAndSetFile(droppedFile);
+            };
+
+            const handleFileChange = (e) => {
+                const selectedFile = e.target.files[0];
+                validateAndSetFile(selectedFile);
+            };
+
+            const validateAndSetFile = (selectedFile) => {
+                setError('');
+                setDownloadUrl(null);
+                setProgress(0);
+                
+                if (selectedFile && selectedFile.type === 'application/pdf') {
+                    setFile(selectedFile);
+                } else {
+                    setFile(null);
+                    setError('PDFファイルのみアップロード可能です。');
+                }
+            };
+
+            const splitPdf = async () => {
+                if (!file) return;
+
+                setIsProcessing(true);
+                setProgress(0);
+                setError('');
+
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdfDoc = await PDFDocument.load(arrayBuffer);
+                    const pageCount = pdfDoc.getPageCount();
+                    const zip = new JSZip();
+
+                    // ファイル名（拡張子なし）
+                    const originalName = file.name.replace('.pdf', '');
+
+                    for (let i = 0; i < pageCount; i++) {
+                        // 新しいPDFドキュメントを作成
+                        const newPdf = await PDFDocument.create();
+                        
+                        // 元のPDFからページをコピー
+                        const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
+                        newPdf.addPage(copiedPage);
+                        
+                        // バイト配列として保存
+                        const pdfBytes = await newPdf.save();
+                        
+                        // ZIPに追加 (ファイル名は 001_filename.pdf の形式)
+                        const pageNum = String(i + 1).padStart(3, '0');
+                        zip.file(`${originalName}_p${pageNum}.pdf`, pdfBytes);
+
+                        // 進捗更新
+                        setProgress(Math.round(((i + 1) / pageCount) * 100));
+                        
+                        // UIのフリーズを防ぐために少し待機
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+
+                    // ZIPファイルを生成
+                    const zipContent = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(zipContent);
+                    
+                    setDownloadUrl(url);
+                    setZipFileName(`${originalName}_split.zip`);
+                    
+                } catch (err) {
+                    console.error(err);
+                    setError('PDFの処理中にエラーが発生しました。ファイルが破損しているか、パスワードで保護されている可能性があります。');
+                } finally {
+                    setIsProcessing(false);
+                }
+            };
+
+            const reset = () => {
+                setFile(null);
+                setDownloadUrl(null);
+                setProgress(0);
+                setError('');
+                // Reset file input value if needed via ref, but state clear works for UI
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden">
+                        {/* Header */}
+                        <div className="bg-blue-600 p-6 text-white text-center">
+                            <h1 className="text-2xl font-bold flex items-center justify-center gap-2">
+                                <i data-lucide="scissors"></i> PDF Splitter
+                            </h1>
+                            <p className="text-blue-100 mt-2 text-sm">PDFを1ページずつ分割してZIPでダウンロード</p>
+                        </div>
+
+                        <div className="p-6 space-y-6">
+                            
+                            {/* File Upload Area */}
+                            {!file && !downloadUrl && (
+                                <div 
+                                    className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors cursor-pointer ${
+                                        isDragging ? 'drag-active' : 'border-gray-300 hover:border-blue-400'
+                                    }`}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    onClick={() => document.getElementById('fileInput').click()}
+                                >
+                                    <input 
+                                        type="file" 
+                                        id="fileInput" 
+                                        className="hidden" 
+                                        accept=".pdf"
+                                        onChange={handleFileChange}
+                                    />
+                                    <div className="flex flex-col items-center text-gray-500">
+                                        <i data-lucide="upload-cloud" className="w-12 h-12 mb-3 text-blue-500"></i>
+                                        <p className="font-medium">PDFファイルをドラッグ＆ドロップ</p>
+                                        <p className="text-sm mt-1">またはクリックして選択</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Selected File Display */}
+                            {file && !downloadUrl && (
+                                <div className="space-y-4">
+                                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex items-center justify-between">
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <i data-lucide="file-text" className="text-blue-600 flex-shrink-0"></i>
+                                            <div className="truncate">
+                                                <p className="font-semibold text-gray-700 truncate">{file.name}</p>
+                                                <p className="text-xs text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={reset}
+                                            className="text-gray-400 hover:text-red-500 transition-colors"
+                                            disabled={isProcessing}
+                                        >
+                                            <i data-lucide="x"></i>
+                                        </button>
+                                    </div>
+
+                                    {/* Process Button / Progress Bar */}
+                                    {isProcessing ? (
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between text-sm font-medium text-gray-600">
+                                                <span>処理中...</span>
+                                                <span>{progress}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                                <div 
+                                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                                                    style={{ width: `${progress}%` }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button 
+                                            onClick={splitPdf}
+                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <i data-lucide="scissors"></i> 分割を実行する
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Success / Download Area */}
+                            {downloadUrl && (
+                                <div className="text-center space-y-6 py-4">
+                                    <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full text-green-600 mb-2">
+                                        <i data-lucide="check" className="w-8 h-8"></i>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-gray-800">完了しました！</h3>
+                                        <p className="text-gray-600 mt-1">分割されたPDFをまとめてダウンロードできます。</p>
+                                    </div>
+                                    
+                                    <a 
+                                        href={downloadUrl} 
+                                        download={zipFileName}
+                                        className="block w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <i data-lucide="download"></i> ZIPファイルをダウンロード
+                                    </a>
+
+                                    <button 
+                                        onClick={reset}
+                                        className="text-gray-500 hover:text-gray-700 text-sm underline"
+                                    >
+                                        別のファイルを処理する
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Error Message */}
+                            {error && (
+                                <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r">
+                                    <div className="flex items-center">
+                                        <i data-lucide="alert-circle" className="text-red-500 mr-2"></i>
+                                        <p className="text-red-700">{error}</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                            <p className="text-center text-xs text-gray-500">
+                                Powered by PDF-Lib & JSZip. Client-side processing only.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
