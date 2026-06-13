@@ -104,8 +104,13 @@
                 setError('');
 
                 try {
-                    const arrayBuffer = await file.arrayBuffer();
-                    const pdfDoc = await PDFDocument.load(arrayBuffer);
+                    const arrayBuffer = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) => reject(new Error('ファイルの読み込みに失敗しました'));
+                        reader.readAsArrayBuffer(file);
+                    });
+                    const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
                     const pageCount = pdfDoc.getPageCount();
                     const zip = new JSZip();
 
