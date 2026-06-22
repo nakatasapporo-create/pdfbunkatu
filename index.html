@@ -9,8 +9,8 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Babel for JSX (Pinned to a stable version) -->
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -38,7 +38,8 @@
 <body>
     <div id="root"></div>
 
-    <script type="text/babel">
+    <!-- Added data-type="module" to prevent import syntax errors when Babel injects the compiled code -->
+    <script type="text/babel" data-type="module">
         const { useState, useEffect, useRef } = React;
         const { PDFDocument } = PDFLib;
 
@@ -159,7 +160,6 @@
                 setDownloadUrl(null);
                 setProgress(0);
                 setError('');
-                // Reset file input value if needed via ref, but state clear works for UI
             };
 
             return (
